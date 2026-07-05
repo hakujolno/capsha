@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
+  <defs>
+    <radialGradient id="background" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(625 600) rotate(90) scale(760)">
+      <stop stop-color="#07111F"/>
+      <stop offset="0.58" stop-color="#030A15"/>
+      <stop offset="1" stop-color="#01050C"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="556" y1="225" x2="653" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12A5F7"/>
+      <stop offset="0.48" stop-color="#087BFF"/>
+      <stop offset="1" stop-color="#0647FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1254" height="1254" fill="url(#background)"/>
+
+  <path fill="url(#mark)" d="
+    M794 367
+    L716 473
+    C672 453 625 443 580 446
+    C501 451 438 502 405 575
+    C373 647 382 730 425 794
+    C466 855 529 878 590 867
+    C649 857 710 827 769 786
+    C771 785 773 787 771 789
+    L690 873
+    C768 839 844 791 911 734
+    C852 872 733 968 592 996
+    C441 1026 303 942 258 796
+    C211 646 265 487 385 388
+    C500 293 662 285 794 367
+    Z
+
+    M687 593
+    C685 594 684 591 686 588
+    L876 335
+    L832 291
+    C824 283 826 272 836 267
+    C838 266 840 265 843 265
+    L1045 225
+    C1056 223 1064 231 1061 242
+    L1009 437
+    C1006 449 995 455 986 447
+    L939 399
+    L687 593
+    Z"/>
+</svg>
