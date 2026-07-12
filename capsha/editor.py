@@ -137,6 +137,7 @@ class EditorWindow(QMainWindow):
 
         self._settings = QSettings("trueWhite", "Capsha")
         self._current_save_path: Path | None = None
+        self._pan_hint_shown = False
         self._image_size_text = f"{image.width()} × {image.height()}"
         self._current_tool = Tool.SELECT
         self._current_color = QColor(DEFAULT_COLOR)
@@ -544,6 +545,7 @@ class EditorWindow(QMainWindow):
         panel = QWidget(self._canvas)
         panel.setObjectName("zoomPanel")
         panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        panel.setToolTip(tr("pan_hint"))
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(5, 4, 5, 4)
         layout.setSpacing(2)
@@ -552,7 +554,7 @@ class EditorWindow(QMainWindow):
         zoom_out.setObjectName("zoomControl")
         zoom_out.setText("−")
         zoom_out.setFixedSize(30, 30)
-        zoom_out.setToolTip(tr("zoom_out"))
+        zoom_out.setToolTip(f"{tr('zoom_out')}\n{tr('pan_hint')}")
         zoom_out.clicked.connect(self._canvas.zoom_out)
         layout.addWidget(zoom_out)
 
@@ -560,13 +562,14 @@ class EditorWindow(QMainWindow):
         self._zoom_label.setObjectName("zoomBadge")
         self._zoom_label.setFixedWidth(52)
         self._zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._zoom_label.setToolTip(tr("pan_hint"))
         layout.addWidget(self._zoom_label)
 
         zoom_in = QToolButton()
         zoom_in.setObjectName("zoomControl")
         zoom_in.setText("+")
         zoom_in.setFixedSize(30, 30)
-        zoom_in.setToolTip(tr("zoom_in"))
+        zoom_in.setToolTip(f"{tr('zoom_in')}\n{tr('pan_hint')}")
         zoom_in.clicked.connect(self._canvas.zoom_in)
         layout.addWidget(zoom_in)
 
@@ -574,7 +577,7 @@ class EditorWindow(QMainWindow):
         view.setObjectName("zoomControl")
         view.setText("⋯")
         view.setFixedSize(30, 30)
-        view.setToolTip(tr("view_settings"))
+        view.setToolTip(f"{tr('view_settings')}\n{tr('pan_hint')}")
         view.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(view)
         menu.addAction(tr("actual_size"), self._canvas.show_100_percent)
@@ -595,11 +598,17 @@ class EditorWindow(QMainWindow):
         panel.show()
         panel.raise_()
         self._zoom_panel = panel
-        self._canvas.zoom_changed.connect(
-            lambda percent: self._zoom_label.setText(f"{percent}%")
-        )
+        self._canvas.zoom_changed.connect(self._zoom_changed)
         self._canvas.installEventFilter(self)
         QTimer.singleShot(0, self._position_zoom_panel)
+
+    def _zoom_changed(self, percent: int) -> None:
+        self._zoom_label.setText(f"{percent}%")
+        if percent <= 100 or self._pan_hint_shown:
+            return
+        self._pan_hint_shown = True
+        self.statusBar().showMessage(tr("pan_hint"), 3500)
+        self._show_toast(tr("pan_hint"), 3200)
 
     def _position_zoom_panel(self) -> None:
         if not hasattr(self, "_zoom_panel"):
@@ -1419,7 +1428,7 @@ class EditorWindow(QMainWindow):
         self._undo_action.setEnabled(can_undo)
         self._redo_action.setEnabled(can_redo)
 
-    def _show_toast(self, message: str) -> None:
+    def _show_toast(self, message: str, duration_ms: int = 1600) -> None:
         if not hasattr(self, "_toast"):
             self._toast = QLabel(self._canvas)
             self._toast.setObjectName("toast")
@@ -1431,7 +1440,7 @@ class EditorWindow(QMainWindow):
         self._toast.move(x, y)
         self._toast.show()
         self._toast.raise_()
-        QTimer.singleShot(1600, self._toast.hide)
+        QTimer.singleShot(duration_ms, self._toast.hide)
 
     def _save(self) -> None:
         if self._current_save_path is None:

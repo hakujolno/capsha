@@ -183,10 +183,19 @@ class AnnotationCanvas(QWidget):
 
     def set_tool(self, tool: Tool) -> None:
         self._tool = tool
+        self._apply_tool_cursor()
+
+    def _apply_tool_cursor(self) -> None:
+        if self._panning:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        if self._space_pressed:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            return
         cursor = Qt.CursorShape.ArrowCursor
-        if tool == Tool.TEXT:
+        if self._tool == Tool.TEXT:
             cursor = Qt.CursorShape.PointingHandCursor
-        elif tool != Tool.SELECT:
+        elif self._tool != Tool.SELECT:
             cursor = Qt.CursorShape.CrossCursor
         self.setCursor(cursor)
 
@@ -1128,6 +1137,9 @@ class AnnotationCanvas(QWidget):
             self._position_inline_editor()
             self.update()
             return
+        if self._space_pressed:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            return
 
         point = self._to_image(event.position())
         if point is None:
@@ -1193,7 +1205,7 @@ class AnnotationCanvas(QWidget):
 
         if self._panning:
             self._panning = False
-            self.set_tool(self._tool)
+            self._apply_tool_cursor()
             return
 
         if self._resize_handle is not None:
@@ -1339,7 +1351,8 @@ class AnnotationCanvas(QWidget):
             return
         if event.key() == Qt.Key.Key_Space:
             self._space_pressed = True
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self._apply_tool_cursor()
+            event.accept()
             return
         super().keyPressEvent(event)
 
@@ -1347,7 +1360,8 @@ class AnnotationCanvas(QWidget):
         if event.key() == Qt.Key.Key_Space:
             self._space_pressed = False
             if not self._panning:
-                self.set_tool(self._tool)
+                self._apply_tool_cursor()
+            event.accept()
             return
         super().keyReleaseEvent(event)
 

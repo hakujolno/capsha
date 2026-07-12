@@ -12,9 +12,9 @@
     </linearGradient>
   </defs>
 
-  <rect width="1254" height="1254" fill="url(#background)"/>
+  <rect width="1254" height="1254" rx="240" ry="240" fill="url(#background)"/>
 
-  <path fill="url(#mark)" d="
+  <path fill="url(#mark)" transform="matrix(1.08 0 0 1.08 -50.16 -50.16)" d="
     M794 367
     L716 473
     C672 453 625 443 580 446
