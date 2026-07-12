@@ -3,7 +3,7 @@
 <p align="center">
   <img src="capsha/assets/logo.svg" width="120" alt="Capsha Logo">
 </p>
-
+[![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/truewhite)
 <h1 align="center">Capsha</h1>
 
 <p align="center">
@@ -141,11 +141,16 @@ Issues, Pull Requests, feature requests, and feedback are always welcome.
 
 ---
 
-## Support
+## ❤️ Support Capsha
 
-If Capsha saves you time, consider supporting its development.
+Capsha is developed and maintained in my spare time.
 
-☕ Ko-fi *(Coming soon)*
+If it helps you work faster or makes your daily workflow easier, consider supporting its development.
+
+Your support directly helps fund new features, bug fixes, and future releases.
+
+☕ Ko-fi
+https://ko-fi.com/truewhite
 
 ---
 
