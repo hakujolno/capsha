@@ -28,7 +28,7 @@ class TextAnnotation:
     outline_color: str = "#000000"
     background_enabled: bool = False
     background_color: str = "#000000"
-    background_opacity: int = 150
+    background_opacity: int = 115
 
 
 @dataclass

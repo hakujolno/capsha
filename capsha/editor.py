@@ -5,7 +5,15 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QSettings,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -175,6 +183,13 @@ class EditorWindow(QMainWindow):
         self._outline_enabled = False
         self._outline_color = QColor("#000000")
         self._background_enabled = False
+        self._background_color = QColor("#000000")
+        self._background_opacity = 45
+        self._text_resize_hint_seen = self._settings.value(
+            "text_resize_hint_seen",
+            False,
+            type=bool,
+        )
 
         self._canvas = AnnotationCanvas(image)
         self._canvas.set_tool(Tool.SELECT)
@@ -526,6 +541,44 @@ class EditorWindow(QMainWindow):
         )
         add(self._background_button, self._text_widgets)
 
+        self._background_color_button = QToolButton()
+        self._background_color_button.setObjectName("colorChip")
+        self._background_color_button.setFixedSize(30, 30)
+        self._background_color_button.setToolTip(
+            tr("choose_background_color")
+        )
+        self._background_color_button.clicked.connect(
+            self._choose_background_color
+        )
+        add(self._background_color_button, self._text_widgets)
+
+        self._background_opacity_label = QLabel(tr("opacity"))
+        self._background_opacity_control = QSlider(
+            Qt.Orientation.Horizontal
+        )
+        self._background_opacity_control.setRange(0, 100)
+        self._background_opacity_control.setValue(
+            self._background_opacity
+        )
+        self._background_opacity_control.setFixedWidth(88)
+        self._background_opacity_control.setToolTip(
+            tr("background_opacity")
+        )
+        self._background_opacity_value = QLabel(
+            f"{self._background_opacity}%"
+        )
+        self._background_opacity_control.valueChanged.connect(
+            self._background_opacity_changed
+        )
+        add(self._background_opacity_label, self._text_widgets)
+        add(self._background_opacity_control, self._text_widgets)
+        add(self._background_opacity_value, self._text_widgets)
+        self._background_detail_widgets = [
+            self._background_opacity_label,
+            self._background_opacity_control,
+            self._background_opacity_value,
+        ]
+
         context_spacer = QWidget()
         context_spacer.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -538,6 +591,8 @@ class EditorWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._state_label)
         self._update_color_button()
         self._update_outline_color_button()
+        self._update_background_color_button()
+        self._update_background_controls_enabled()
         self._update_state_label()
         self._update_context_visibility()
 
@@ -1187,8 +1242,63 @@ class EditorWindow(QMainWindow):
         self._select_tool(tool)
 
     def _selection_changed(self, selected: bool) -> None:
+        self._sync_selected_text_controls()
         self._update_context_visibility()
         self._update_state_label()
+        self._maybe_show_text_resize_hint()
+
+    def _sync_selected_text_controls(self) -> None:
+        if not hasattr(self, "_font_combo"):
+            return
+        selected = self._canvas.selected_annotation()
+        if not isinstance(selected, TextAnnotation):
+            return
+        self._font_family = selected.font_family
+        self._bold = selected.bold
+        self._italic = selected.italic
+        self._outline_enabled = selected.outline_enabled
+        self._outline_color = QColor(selected.outline_color)
+        self._background_enabled = selected.background_enabled
+        self._background_color = QColor(selected.background_color)
+        self._background_opacity = round(
+            max(0, min(selected.background_opacity, 255)) * 100 / 255
+        )
+
+        blockers = [
+            QSignalBlocker(self._font_combo),
+            QSignalBlocker(self._bold_button),
+            QSignalBlocker(self._italic_button),
+            QSignalBlocker(self._outline_button),
+            QSignalBlocker(self._background_button),
+            QSignalBlocker(self._background_opacity_control),
+        ]
+        self._font_combo.setCurrentFont(QFont(self._font_family))
+        self._bold_button.setChecked(self._bold)
+        self._italic_button.setChecked(self._italic)
+        self._outline_button.setChecked(self._outline_enabled)
+        self._background_button.setChecked(self._background_enabled)
+        self._background_opacity_control.setValue(
+            self._background_opacity
+        )
+        del blockers
+        self._background_opacity_value.setText(
+            f"{self._background_opacity}%"
+        )
+        self._update_outline_color_button()
+        self._update_background_color_button()
+        self._update_background_controls_enabled()
+
+    def _maybe_show_text_resize_hint(self) -> None:
+        selected = self._canvas.selected_annotation()
+        if (
+            self._text_resize_hint_seen
+            or not isinstance(selected, TextAnnotation)
+        ):
+            return
+        self._text_resize_hint_seen = True
+        self._settings.setValue("text_resize_hint_seen", True)
+        self.statusBar().showMessage(tr("text_resize_hint"), 4000)
+        self._show_toast(tr("text_resize_hint"), 3600)
 
     def _update_context_visibility(self) -> None:
         if not hasattr(self, "_line_widgets"):
@@ -1212,6 +1322,7 @@ class EditorWindow(QMainWindow):
             action.setVisible(show_rectangle)
         for action in self._text_widgets:
             action.setVisible(show_text)
+        self._update_background_controls_enabled()
 
     def _line_width_text_changed(self, text: str) -> None:
         try:
@@ -1311,6 +1422,34 @@ class EditorWindow(QMainWindow):
             tr("outline_color", color=self._outline_color.name())
         )
 
+    def _choose_background_color(self) -> None:
+        color = QColorDialog.getColor(
+            self._background_color,
+            self,
+            tr("choose_background_color"),
+        )
+        if not color.isValid():
+            return
+        self._background_color = color
+        self._canvas.set_background_color(color)
+        self._update_background_color_button()
+        self._update_state_label()
+
+    def _update_background_color_button(self) -> None:
+        chip = QPixmap(24, 24)
+        chip.fill(self._background_color)
+        self._background_color_button.setIcon(QIcon(chip))
+        self._background_color_button.setIconSize(QSize(24, 24))
+        self._background_color_button.setToolTip(
+            tr("background_color", color=self._background_color.name())
+        )
+
+    def _update_background_controls_enabled(self) -> None:
+        if not hasattr(self, "_background_detail_widgets"):
+            return
+        for widget in self._background_detail_widgets:
+            widget.setEnabled(self._background_enabled)
+
     def _line_width_changed(self, width: int) -> None:
         self._line_width = width
         self._canvas.set_line_width(width)
@@ -1384,6 +1523,14 @@ class EditorWindow(QMainWindow):
         self._background_enabled = enabled
         self._canvas.set_background_enabled(enabled)
         self._background_button.setText(tr("background"))
+        self._update_background_controls_enabled()
+        self._update_state_label()
+
+    def _background_opacity_changed(self, percent: int) -> None:
+        self._background_opacity = percent
+        self._canvas.set_background_opacity(percent)
+        if hasattr(self, "_background_opacity_value"):
+            self._background_opacity_value.setText(f"{percent}%")
         self._update_state_label()
 
     def _grid_changed(self, enabled: bool) -> None:
@@ -1395,11 +1542,8 @@ class EditorWindow(QMainWindow):
             self._state_label.setText(self._image_size_text)
         elif isinstance(selected, TextAnnotation):
             self._state_label.setText(
-                tr(
-                    "status_text",
-                    color=selected.color,
-                    font=selected.font_family,
-                )
+                f"{tr('status_text', color=selected.color, font=selected.font_family)}"
+                f"  ·  {tr('status_text_hint')}"
             )
         elif isinstance(selected, RectangleAnnotation):
             self._state_label.setText(

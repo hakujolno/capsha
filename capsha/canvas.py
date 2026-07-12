@@ -33,6 +33,7 @@ from capsha.annotations import (
     TextAnnotation,
     Tool,
 )
+from capsha.i18n import tr
 
 DEFAULT_COLOR = "#ef3f4f"
 CIRCLED_NUMBERS = [
@@ -124,6 +125,8 @@ class AnnotationCanvas(QWidget):
         self._outline_enabled = False
         self._outline_color = "#000000"
         self._background_enabled = False
+        self._background_color = "#000000"
+        self._background_opacity = 45
         self._caption_number = 1
 
         self._start: QPointF | None = None
@@ -318,6 +321,24 @@ class AnnotationCanvas(QWidget):
         annotation = self.selected_annotation()
         if isinstance(annotation, TextAnnotation):
             annotation.background_enabled = enabled
+            self._commit_history()
+            self.update()
+
+    def set_background_color(self, color: QColor) -> None:
+        self._background_color = color.name()
+        annotation = self.selected_annotation()
+        if isinstance(annotation, TextAnnotation):
+            annotation.background_color = self._background_color
+            self._commit_history()
+            self.update()
+
+    def set_background_opacity(self, percent: int) -> None:
+        self._background_opacity = max(0, min(percent, 100))
+        annotation = self.selected_annotation()
+        if isinstance(annotation, TextAnnotation):
+            annotation.background_opacity = round(
+                self._background_opacity * 255 / 100
+            )
             self._commit_history()
             self.update()
 
@@ -687,6 +708,8 @@ class AnnotationCanvas(QWidget):
             self._outline_enabled,
             self._outline_color,
             self._background_enabled,
+            self._background_color,
+            round(self._background_opacity * 255 / 100),
         )
 
     def _position_inline_editor(self) -> None:
@@ -1114,8 +1137,8 @@ class AnnotationCanvas(QWidget):
                     self._outline_enabled,
                     self._outline_color,
                     self._background_enabled,
-                    "#000000",
-                    150,
+                    self._background_color,
+                    round(self._background_opacity * 255 / 100),
                     number,
                 )
             )
@@ -1191,6 +1214,11 @@ class AnnotationCanvas(QWidget):
                 self.setCursor(Qt.CursorShape.CrossCursor)
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
+            selected = self.selected_annotation()
+            if handle is not None and isinstance(selected, TextAnnotation):
+                self.setToolTip(tr("text_resize_hint"))
+            else:
+                self.setToolTip("")
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
