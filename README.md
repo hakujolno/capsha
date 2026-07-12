@@ -29,10 +29,16 @@
 
 ## 📸 Screenshot
 
-<p align="center">
-  <img src="docs/images/editor.png" width="900" alt="Capsha Screenshot">
-</p>
-
+<table align="center">
+  <tr>
+    <th>Editor</th>
+    <th>In Action</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/editor.png" width="100%" alt="Concept"></td>
+    <td><img src="docs/images/capsha-using.png" width="100%" alt="Capsha in use"></td>
+  </tr>
+</table>
 ---
 
 ## ✨ Overview
