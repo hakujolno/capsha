@@ -31,7 +31,7 @@
 
 <table align="center">
   <tr>
-    <th>Editor</th>
+    <th>Concept</th>
     <th>In Action</th>
   </tr>
   <tr>
@@ -48,6 +48,20 @@ Capsha is a lightweight screenshot annotation tool built for people who share sc
 Instead of focusing on editing, Capsha focuses on **speed**.
 
 From capture to clipboard, annotation, saving, and sharing, every interaction is designed to minimize clicks.
+
+---
+
+## ⚡ Quick Start
+
+For the fastest experience, pin Capsha to your Windows taskbar.
+
+workflow:
+
+1. Pin **Capsha** to your Windows taskbar.
+2. Press **Win + 1** (or the number matching its position) to launch it instantly.
+3. Capture, annotate, copy, and share.
+
+This is the fastest way to use Capsha.
 
 ---
 

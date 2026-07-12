@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QEasingCurve,
     QEvent,
+    QPropertyAnimation,
     QSettings,
     QSignalBlocker,
     QSize,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QColorDialog,
     QComboBox,
     QFileDialog,
@@ -46,6 +49,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QToolBar,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -200,6 +204,7 @@ class EditorWindow(QMainWindow):
         self._apply_style()
         QTimer.singleShot(0, self._update_context_visibility)
         QTimer.singleShot(0, self._apply_initial_window_size)
+        QTimer.singleShot(650, self._maybe_show_did_you_know_tip)
 
         self._canvas.history_changed.connect(
             self._update_history_actions
@@ -674,6 +679,119 @@ class EditorWindow(QMainWindow):
         )
         self._zoom_panel.raise_()
 
+    def _maybe_show_did_you_know_tip(self) -> None:
+        hidden = self._settings.value(
+            "hide_taskbar_launch_tip",
+            False,
+            type=bool,
+        )
+        if hidden:
+            return
+        self._show_did_you_know_tip()
+
+    def _show_did_you_know_tip(self) -> None:
+        card = getattr(self, "_tip_card", None)
+        if card is None:
+            card = self._create_tip_card()
+            self._tip_card = card
+        self._position_tip_card()
+        card.show()
+        card.raise_()
+        effect = getattr(self, "_tip_opacity", None)
+        if effect is not None:
+            effect.setOpacity(0.0)
+            self._animate_tip_opacity(0.0, 1.0, 140)
+
+    def _create_tip_card(self) -> QWidget:
+        card = QWidget(self._canvas)
+        card.setObjectName("tipCard")
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card.setFixedWidth(320)
+
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(16, 13, 14, 13)
+        outer.setSpacing(8)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        title = QLabel(tr("tip_did_you_know_title"))
+        title.setObjectName("tipTitle")
+        header.addWidget(title)
+        header.addStretch(1)
+
+        close = QToolButton()
+        close.setObjectName("tipCloseButton")
+        close.setText("×")
+        close.setFixedSize(24, 24)
+        close.clicked.connect(self._close_did_you_know_tip)
+        header.addWidget(close)
+        outer.addLayout(header)
+
+        body = QLabel(tr("tip_taskbar_launch_body"))
+        body.setObjectName("tipBody")
+        body.setWordWrap(True)
+        body.setTextFormat(Qt.TextFormat.RichText)
+        outer.addWidget(body)
+
+        self._tip_dont_show = QCheckBox(tr("tip_dont_show_again"))
+        self._tip_dont_show.setObjectName("tipDontShow")
+        outer.addWidget(self._tip_dont_show)
+
+        opacity = QGraphicsOpacityEffect(card)
+        opacity.setOpacity(0.0)
+        card.setGraphicsEffect(opacity)
+        self._tip_opacity = opacity
+        card.adjustSize()
+        return card
+
+    def _close_did_you_know_tip(self) -> None:
+        if hasattr(self, "_tip_dont_show"):
+            self._settings.setValue(
+                "hide_taskbar_launch_tip",
+                self._tip_dont_show.isChecked(),
+            )
+        card = getattr(self, "_tip_card", None)
+        if card is None:
+            return
+        self._animate_tip_opacity(1.0, 0.0, 120, card.hide)
+
+    def _animate_tip_opacity(
+        self,
+        start: float,
+        end: float,
+        duration_ms: int,
+        finished: Callable[[], None] | None = None,
+    ) -> None:
+        effect = getattr(self, "_tip_opacity", None)
+        if effect is None:
+            if finished is not None:
+                finished()
+            return
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(duration_ms)
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        if finished is not None:
+            animation.finished.connect(finished)
+        animation.finished.connect(animation.deleteLater)
+        self._tip_animation = animation
+        animation.start()
+
+    def _position_tip_card(self) -> None:
+        card = getattr(self, "_tip_card", None)
+        if card is None:
+            return
+        card.adjustSize()
+        bottom_margin = 70
+        if hasattr(self, "_zoom_panel"):
+            bottom_margin = self._zoom_panel.height() + 30
+        card.move(
+            max(16, self._canvas.width() - card.width() - 18),
+            max(16, self._canvas.height() - card.height() - bottom_margin),
+        )
+        card.raise_()
+
     def _apply_initial_window_size(self) -> None:
         command_width = self._command_bar.sizeHint().width() + 24
         minimum_width = max(1180, command_width)
@@ -682,10 +800,12 @@ class EditorWindow(QMainWindow):
             self.resize(max(self.width(), minimum_width), 720)
         self._canvas.fit_image()
         self._position_zoom_panel()
+        self._position_tip_card()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         if watched is self._canvas and event.type() == QEvent.Type.Resize:
             QTimer.singleShot(0, self._position_zoom_panel)
+            QTimer.singleShot(0, self._position_tip_card)
         return super().eventFilter(watched, event)
 
     def _build_legacy_toolbars(self) -> None:
@@ -1049,6 +1169,22 @@ class EditorWindow(QMainWindow):
             "QLabel#toast { color: #ffffff; background: rgba(24, 32, 43, 247);"
             " border: 1px solid #4b86e8; border-radius: 9px;"
             " padding: 10px 18px; font-weight: 600; }"
+            "QWidget#tipCard { background: rgba(18, 25, 35, 244);"
+            " border: 1px solid #334155; border-radius: 13px; }"
+            "QLabel#tipTitle { color: #f8fafc; font-size: 14px;"
+            " font-weight: 700; }"
+            "QLabel#tipBody { color: #cbd5e1; line-height: 135%; }"
+            "QToolButton#tipCloseButton { color: #94a3b8;"
+            " background: transparent; border: 1px solid transparent;"
+            " border-radius: 7px; padding: 0; font-size: 16px; }"
+            "QToolButton#tipCloseButton:hover { color: #ffffff;"
+            " background: #253143; border-color: #3b4a5f; }"
+            "QCheckBox#tipDontShow { color: #aab6c6; spacing: 7px; }"
+            "QCheckBox#tipDontShow::indicator { width: 14px; height: 14px;"
+            " border: 1px solid #526175; border-radius: 4px;"
+            " background: #111827; }"
+            "QCheckBox#tipDontShow::indicator:checked {"
+            " background: #3b82f6; border-color: #60a5fa; }"
             "QMenu { color: #edf0f4; background: #19212c;"
             " border: 1px solid #3a4656; border-radius: 9px; padding: 6px; }"
             "QMenu::item { color: #edf0f4; background: transparent;"

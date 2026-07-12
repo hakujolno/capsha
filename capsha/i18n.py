@@ -83,6 +83,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_arrow": "矢印  ·  {color}  ·  {width}px",
         "capture_instruction": "ドラッグして範囲を選択   •   Esc で終了",
         "text_resize_hint": "角のハンドルをドラッグして文字サイズを変更できます",
+        "tip_did_you_know_title": "💡 ご存知ですか？",
+        "tip_taskbar_launch_body": "Capshaをタスクバーへピン留めすると、<br>「Win + 数字」で一瞬で起動できます。<br><br>例：<br>タスクバーの1番目なら <b>Win + 1</b>",
+        "tip_dont_show_again": "今後表示しない",
     },
     "en": {
         "save": "Save",
@@ -163,6 +166,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_arrow": "Arrow  ·  {color}  ·  {width}px",
         "capture_instruction": "Drag to select an area   •   Esc to exit",
         "text_resize_hint": "Drag a corner handle to resize text",
+        "tip_did_you_know_title": "💡 Did you know?",
+        "tip_taskbar_launch_body": "Pin Capsha to your taskbar and launch it instantly with <b>Win + 1</b>.",
+        "tip_dont_show_again": "Don't show again",
     },
 }
 
