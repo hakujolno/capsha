@@ -1,31 +1,41 @@
-# Capsha
-
 <p align="center">
-  <img src="capsha/assets/logo.svg" width="120" alt="Capsha Logo">
+  <img src="capsha/assets/logo.svg" width="128" alt="Capsha Logo">
 </p>
-[![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/truewhite)
+
 <h1 align="center">Capsha</h1>
 
 <p align="center">
-<b>Capture. Annotate. Share.</b>
+  <strong>Capture. Annotate. Share.</strong>
 </p>
 
 <p align="center">
-Clipboard-first screenshot annotation for Windows.
+  Clipboard-first screenshot annotation for Windows.
 </p>
 
 <p align="center">
+  <a href="https://ko-fi.com/truewhite">
+    <img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi">
+  </a>
+</p>
 
-![Platform](https://img.shields.io/badge/Platform-Windows-0078D4)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB)
-![License](https://img.shields.io/github/license/hakujolno/capsha)
-![Release](https://img.shields.io/github/v/release/hakujolno/capsha)
-
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Windows-0078D4" alt="Platform">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB" alt="Python">
+  <img src="https://img.shields.io/github/license/hakujolno/capsha" alt="License">
+  <img src="https://img.shields.io/github/v/release/hakujolno/capsha" alt="Release">
 </p>
 
 ---
 
-## Overview
+## 📸 Screenshot
+
+<p align="center">
+  <img src="docs/images/editor.png" width="900" alt="Capsha Screenshot">
+</p>
+
+---
+
+## ✨ Overview
 
 Capsha is a lightweight screenshot annotation tool built for people who share screenshots every day.
 
@@ -35,14 +45,14 @@ From capture to clipboard, annotation, saving, and sharing, every interaction is
 
 ---
 
-## Features
+## 🚀 Features
 
 - ⚡ Instant region capture
 - ✏️ Text annotations
 - ▭ Rectangle annotations
 - ➜ Arrow annotations
 - 🟪 Mosaic / Blur
-- 📋 Automatic clipboard copy
+- 📋 Clipboard-first workflow
 - 💾 PNG export
 - 𝕏 Open X compose page
 - 🌐 Japanese / English UI
@@ -51,29 +61,25 @@ From capture to clipboard, annotation, saving, and sharing, every interaction is
 
 ---
 
-## Philosophy
+## 💡 Philosophy
 
 Most screenshot tools are built to edit images.
 
 Capsha is built to **share them.**
 
-Every feature exists for one reason:
-
-> **Reduce the time between capturing a screenshot and sharing it.**
+> Reduce the time between capturing a screenshot and sharing it.
 
 ---
 
-## Screenshots
-
-*(Coming soon)*
-
----
-
-## Installation
+## 📦 Installation
 
 Download the latest release from GitHub Releases.
 
-```
+https://github.com/hakujolno/capsha/releases
+
+Extract the ZIP and launch:
+
+```text
 Capsha.exe
 ```
 
@@ -81,7 +87,7 @@ No installation required.
 
 ---
 
-## Keyboard Shortcuts
+## ⌨️ Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -94,7 +100,7 @@ No installation required.
 
 ---
 
-## Building
+## 🛠️ Building
 
 ```bash
 git clone https://github.com/hakujolno/capsha.git
@@ -108,7 +114,7 @@ python main.py
 
 ---
 
-## Build Executable
+## 🔨 Build Executable
 
 ```powershell
 scripts/build_release.ps1
@@ -122,46 +128,43 @@ pyinstaller capsha.spec
 
 ---
 
-## Roadmap
+## 🗺️ Roadmap
 
 - [x] Clipboard-first workflow
 - [x] Fast annotation
-- [x] Multi-language support
+- [x] Multi-language support(en, jp)
 - [ ] Automatic updates
 - [ ] macOS support
 - [ ] OCR
-- [ ] AI-assisted captions
-- [ ] Plugin-based sharing
-
+- and more...
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Issues, Pull Requests, feature requests, and feedback are always welcome.
 
 ---
 
-## ❤️ Support Capsha
+## ❤️ Support
 
 Capsha is developed and maintained in my spare time.
 
-If it helps you work faster or makes your daily workflow easier, consider supporting its development.
+If Capsha helps you save time, consider supporting its development.
 
-Your support directly helps fund new features, bug fixes, and future releases.
+Your support helps fund new features, bug fixes, and future releases.
 
-☕ Ko-fi
-https://ko-fi.com/truewhite
+<a href="https://ko-fi.com/truewhite">
+  <img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi">
+</a>
 
 ---
 
-## License
+## 📄 License
 
 MIT License
 
 ---
 
 <p align="center">
-
-Made with ❤️ by **trueWhite**
-
+Made with ❤️ by <strong>trueWhite</strong>
 </p>
