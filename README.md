@@ -39,7 +39,6 @@
     <td><img src="docs/images/capsha-using.png" width="100%" alt="Capsha in use"></td>
   </tr>
 </table>
----
 
 ## ✨ Overview
 
