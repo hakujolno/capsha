@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFontComboBox,
     QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -421,77 +422,109 @@ class EditorWindow(QMainWindow):
             for group in groups:
                 group.append(action)
 
-        line_label = QLabel(tr("stroke_width"))
+        def context_label(
+            text: str,
+            minimum_width: int = 54,
+        ) -> QLabel:
+            label = QLabel(text)
+            label.setObjectName("contextLabel")
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignRight
+                | Qt.AlignmentFlag.AlignVCenter
+            )
+            label.setMinimumWidth(
+                max(
+                    minimum_width,
+                    label.fontMetrics().horizontalAdvance(text) + 18,
+                )
+            )
+            return label
+
+        def add_gap(width: int, *groups: list[QAction]) -> None:
+            gap = QWidget()
+            gap.setFixedWidth(width)
+            add(gap, *groups)
+
+        line_label = context_label(tr("stroke_width"), 60)
         self._line_width_combo = QComboBox()
         self._line_width_combo.setEditable(True)
         self._line_width_combo.addItems(
             ["1", "2", "3", "4", "6", "8", "12", "16", "24"]
         )
         self._line_width_combo.setCurrentText(str(self._line_width))
-        self._line_width_combo.setFixedWidth(64)
+        self._line_width_combo.setFixedWidth(82)
         self._line_width_combo.currentTextChanged.connect(
             self._line_width_text_changed
         )
         add(line_label, self._line_widgets)
         add(self._line_width_combo, self._line_widgets)
+        add_gap(10, self._line_widgets)
 
-        style_label = QLabel(tr("stroke_style"))
+        style_label = context_label(tr("stroke_style"), 60)
         self._line_style_combo = QComboBox()
         self._line_style_combo.addItem(tr("solid"), "solid")
         self._line_style_combo.addItem(tr("dashed"), "dash")
         self._line_style_combo.addItem(tr("dotted"), "dot")
-        self._line_style_combo.setFixedWidth(78)
+        self._line_style_combo.setFixedWidth(104)
         self._line_style_combo.currentIndexChanged.connect(
             self._line_style_changed
         )
         add(style_label, self._line_widgets)
         add(self._line_style_combo, self._line_widgets)
+        add_gap(10, self._line_widgets)
 
-        line_alpha_label = QLabel(tr("stroke"))
+        line_alpha_label = context_label(tr("stroke"), 60)
         self._line_opacity_control = QSlider(
             Qt.Orientation.Horizontal
         )
         self._line_opacity_control.setRange(0, 100)
         self._line_opacity_control.setValue(self._line_opacity)
-        self._line_opacity_control.setFixedWidth(88)
+        self._line_opacity_control.setFixedWidth(104)
         self._line_opacity_control.setToolTip(tr("stroke_opacity"))
         self._line_alpha_value = QLabel("100%")
+        self._line_alpha_value.setMinimumWidth(42)
         self._line_opacity_control.valueChanged.connect(
             self._line_opacity_changed
         )
         add(line_alpha_label, self._line_widgets)
         add(self._line_opacity_control, self._line_widgets)
         add(self._line_alpha_value, self._line_widgets)
+        add_gap(12, self._line_widgets)
 
         self._fill_button = QPushButton(tr("no_fill"))
         self._fill_button.setObjectName("toggleButton")
         self._fill_button.setCheckable(True)
+        self._fill_button.setMinimumWidth(96)
         self._fill_button.toggled.connect(self._fill_changed)
         add(self._fill_button, self._rectangle_widgets)
+        add_gap(10, self._rectangle_widgets)
 
-        fill_alpha_label = QLabel(tr("fill"))
+        fill_alpha_label = context_label(tr("fill"), 48)
         self._fill_opacity_control = QSlider(
             Qt.Orientation.Horizontal
         )
         self._fill_opacity_control.setRange(0, 100)
         self._fill_opacity_control.setValue(self._fill_opacity)
-        self._fill_opacity_control.setFixedWidth(92)
+        self._fill_opacity_control.setFixedWidth(104)
         self._fill_opacity_control.setToolTip(tr("fill_opacity"))
         self._fill_alpha_value = QLabel("30%")
+        self._fill_alpha_value.setMinimumWidth(42)
         self._fill_opacity_control.valueChanged.connect(
             self._fill_opacity_changed
         )
         add(fill_alpha_label, self._rectangle_widgets)
         add(self._fill_opacity_control, self._rectangle_widgets)
         add(self._fill_alpha_value, self._rectangle_widgets)
+        add_gap(10, self._rectangle_widgets)
 
         self._rounded_button = QPushButton(tr("rounded"))
         self._rounded_button.setObjectName("toggleButton")
         self._rounded_button.setCheckable(True)
+        self._rounded_button.setMinimumWidth(72)
         self._rounded_button.toggled.connect(self._rounded_changed)
         add(self._rounded_button, self._rectangle_widgets)
 
-        font_label = QLabel(tr("font"))
+        font_label = context_label(tr("font"), 56)
         self._font_combo = QFontComboBox()
         self._font_combo.setCurrentFont(QFont(self._font_family))
         self._font_combo.setFixedWidth(170)
@@ -557,7 +590,10 @@ class EditorWindow(QMainWindow):
         )
         add(self._background_color_button, self._text_widgets)
 
-        self._background_opacity_label = QLabel(tr("opacity"))
+        self._background_opacity_label = context_label(
+            tr("opacity"),
+            64,
+        )
         self._background_opacity_control = QSlider(
             Qt.Orientation.Horizontal
         )
@@ -565,13 +601,14 @@ class EditorWindow(QMainWindow):
         self._background_opacity_control.setValue(
             self._background_opacity
         )
-        self._background_opacity_control.setFixedWidth(88)
+        self._background_opacity_control.setFixedWidth(104)
         self._background_opacity_control.setToolTip(
             tr("background_opacity")
         )
         self._background_opacity_value = QLabel(
             f"{self._background_opacity}%"
         )
+        self._background_opacity_value.setMinimumWidth(42)
         self._background_opacity_control.valueChanged.connect(
             self._background_opacity_changed
         )
@@ -794,7 +831,8 @@ class EditorWindow(QMainWindow):
 
     def _apply_initial_window_size(self) -> None:
         command_width = self._command_bar.sizeHint().width() + 24
-        minimum_width = max(1180, command_width)
+        context_width = self._context_bar.sizeHint().width() + 32
+        minimum_width = max(1360, command_width, context_width)
         self.setMinimumSize(minimum_width, 620)
         if self.width() < minimum_width or self.height() < 720:
             self.resize(max(self.width(), minimum_width), 720)
@@ -1081,10 +1119,13 @@ class EditorWindow(QMainWindow):
             " stop:0 #1a212c, stop:1 #161d27); border: 0;"
             " border-bottom: 1px solid #293342; spacing: 7px;"
             " padding: 8px 12px; }"
-            "QToolBar#contextBar { background: #141a23; padding: 7px 12px; }"
+            "QToolBar#contextBar { background: #141a23;"
+            " padding: 8px 14px; spacing: 9px; }"
             "QToolBar::separator { background: #303a48; width: 1px;"
             " margin: 6px 7px; }"
             "QLabel { color: #d7dce4; background: transparent; }"
+            "QLabel#contextLabel { color: #aeb8c5;"
+            " padding: 0 8px 0 2px; }"
             "QLabel#brandLabel { color: #f1f3f7; font-size: 15px;"
             " font-weight: 600; padding: 0 11px 0 4px; }"
             "QPushButton { color: #e7eaf0; background: #202936;"
@@ -1202,9 +1243,12 @@ class EditorWindow(QMainWindow):
             "QToolBar { background: #f7f7f7; border: 0;"
             " border-bottom: 1px solid #e1e1e1; spacing: 4px;"
             " padding: 5px 8px; }"
+            "QToolBar#contextBar { spacing: 9px; padding: 8px 14px; }"
             "QToolBar::separator { background: #dddddd; width: 1px;"
             " margin: 5px 5px; }"
             "QLabel { color: #252525; background: transparent; }"
+            "QLabel#contextLabel { color: #555555;"
+            " padding: 0 8px 0 2px; }"
             "QLabel#brandLabel { font-size: 15px; font-weight: 600;"
             " padding: 0 8px 0 3px; }"
             "QPushButton { color: #242424; background: #fbfbfb;"
