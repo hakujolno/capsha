@@ -49,7 +49,13 @@ unused_prefixes = (
     "PySide6/plugins/platforminputcontexts/",
     "PySide6/plugins/tls/",
 )
-allowed_image_plugins = {"qico.dll", "qsvg.dll"}
+allowed_image_plugins = {
+    "qgif.dll",
+    "qico.dll",
+    "qjpeg.dll",
+    "qsvg.dll",
+    "qwebp.dll",
+}
 allowed_platform_plugins = {"qoffscreen.dll", "qwindows.dll"}
 allowed_translations = {
     "qt_en.qm",

@@ -21,6 +21,8 @@ from PySide6.QtGui import (
     QColor,
     QCloseEvent,
     QFont,
+    QDragEnterEvent,
+    QDropEvent,
     QImage,
     QIcon,
     QKeyEvent,
@@ -65,6 +67,7 @@ from capsha.branding import load_brand_logo
 from capsha.canvas import AnnotationCanvas, DEFAULT_COLOR
 from capsha.clipboard import copy_image_to_clipboard
 from capsha.icons import make_icon
+from capsha.image_io import is_supported_image_path, load_image
 from capsha.i18n import tr
 
 
@@ -142,7 +145,11 @@ class StepperControl(QWidget):
 
 
 class EditorWindow(QMainWindow):
-    def __init__(self, image: QImage) -> None:
+    def __init__(
+        self,
+        image: QImage,
+        source_path: Path | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Capsha")
         self.setMinimumSize(1180, 620)
@@ -150,6 +157,8 @@ class EditorWindow(QMainWindow):
 
         self._settings = QSettings("trueWhite", "Capsha")
         self._current_save_path: Path | None = None
+        self._source_path = source_path
+        self._dirty = False
         self._pan_hint_shown = False
         self._image_size_text = f"{image.width()} × {image.height()}"
         self._current_tool = Tool.SELECT
@@ -199,6 +208,8 @@ class EditorWindow(QMainWindow):
         self._canvas = AnnotationCanvas(image)
         self._canvas.set_tool(Tool.SELECT)
         self.setCentralWidget(self._canvas)
+        self.setAcceptDrops(True)
+        self._canvas.setAcceptDrops(True)
         self._build_actions()
         self._build_toolbars()
         self._build_zoom_panel()
@@ -217,9 +228,10 @@ class EditorWindow(QMainWindow):
             self._select_tool_from_canvas
         )
         self.statusBar().showMessage(
-            tr("captured_copied"),
+            tr("image_loaded") if source_path is not None else tr("captured_copied"),
             3500,
         )
+        self._canvas.changed.connect(self._mark_dirty)
 
     def _build_actions(self) -> None:
         self._save_action = QAction(tr("save"), self)
@@ -323,7 +335,7 @@ class EditorWindow(QMainWindow):
         tool_items = [
             (tr("select"), Tool.SELECT, "select"),
             (tr("text"), Tool.TEXT, "text"),
-            ("①", Tool.CAPTION, "caption"),
+            ("①②", Tool.CAPTION, "caption"),
             (tr("rectangle"), Tool.RECTANGLE, "rectangle"),
             (tr("arrow"), Tool.ARROW, "arrow"),
             (tr("mosaic"), Tool.MOSAIC, "mosaic"),
@@ -841,10 +853,77 @@ class EditorWindow(QMainWindow):
         self._position_tip_card()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
-        if watched is self._canvas and event.type() == QEvent.Type.Resize:
-            QTimer.singleShot(0, self._position_zoom_panel)
-            QTimer.singleShot(0, self._position_tip_card)
+        if watched is self._canvas:
+            if event.type() == QEvent.Type.Resize:
+                QTimer.singleShot(0, self._position_zoom_panel)
+                QTimer.singleShot(0, self._position_tip_card)
+            elif isinstance(event, QDragEnterEvent):
+                self.dragEnterEvent(event)
+                return event.isAccepted()
+            elif isinstance(event, QDropEvent):
+                self.dropEvent(event)
+                return event.isAccepted()
         return super().eventFilter(watched, event)
+
+    @staticmethod
+    def _image_path_from_drop(event: QDropEvent | QDragEnterEvent) -> Path | None:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if is_supported_image_path(path):
+                return path
+        return None
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._image_path_from_drop(event) is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        path = self._image_path_from_drop(event)
+        if path is None:
+            event.ignore()
+            return
+        if not self._confirm_replace_image_if_needed():
+            event.ignore()
+            return
+        self._replace_image_from_path(path)
+        event.acceptProposedAction()
+
+    def _confirm_replace_image_if_needed(self) -> bool:
+        if not self._dirty:
+            return True
+        answer = QMessageBox.question(
+            self,
+            tr("replace_image_title"),
+            tr("replace_image_message"),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _replace_image_from_path(self, path: Path) -> bool:
+        image = load_image(path)
+        if image is None:
+            return False
+        self._canvas.replace_image(image)
+        self._source_path = path
+        self._current_save_path = None
+        self._dirty = False
+        self._image_size_text = f"{image.width()} × {image.height()}"
+        self._select_tool(Tool.SELECT)
+        self.statusBar().showMessage(tr("image_loaded"), 2500)
+        self._show_toast(tr("image_loaded"))
+        return True
+
+    def _mark_dirty(self) -> None:
+        self._dirty = True
 
     def _build_legacy_toolbars(self) -> None:
         tools = QToolBar("注釈ツール", self)
@@ -1807,6 +1886,7 @@ class EditorWindow(QMainWindow):
             self._settings.setValue(
                 "last_save_dir", str(path.parent)
             )
+            self._dirty = False
             self.statusBar().showMessage(
                 tr("saved_path", path=str(path)),
                 4000,

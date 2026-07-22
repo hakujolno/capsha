@@ -160,6 +160,35 @@ class AnnotationCanvas(QWidget):
         if application is not None:
             application.installEventFilter(self)
 
+    def replace_image(self, image: QImage) -> None:
+        self.commit_inline_editing()
+        source = image.copy()
+        source.setDevicePixelRatio(1.0)
+        self._base = source.convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+        self._base.setDevicePixelRatio(1.0)
+        self._mosaic_preview = self._base
+        self._annotations = []
+        self._history = [[]]
+        self._history_index = 0
+        self._start = None
+        self._current = None
+        self._selected_index = None
+        self._dragged_index = None
+        self._drag_origin = None
+        self._drag_original = None
+        self._resize_handle = None
+        self._zoom = 1.0
+        self._pan = QPointF()
+        self._panning = False
+        self._caption_number = 1
+        self.history_changed.emit(False, False)
+        self.selection_changed.emit(False)
+        self.zoom_changed.emit(self.current_zoom_percent())
+        self._position_inline_editor()
+        self.update()
+
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         if (
             self._inline_editor is not None
