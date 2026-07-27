@@ -102,6 +102,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    manifest=str(project_root / "packaging" / "app.manifest"),
     icon=str(assets / "capsha.ico"),
     version=str(project_root / "packaging" / "windows_version_info.txt"),
 )

@@ -75,7 +75,7 @@ class CaptureOverlay(QWidget):
 
     def _global_selection(self, selected: QRect) -> QRect:
         return QRect(
-            selected.topLeft() + self._virtual_geometry.topLeft(),
+            self.mapToGlobal(selected.topLeft()),
             selected.size(),
         )
 
@@ -99,7 +99,9 @@ class CaptureOverlay(QWidget):
             (area.top() + area.height() - snapshot.geometry.top())
             * snapshot.scale_y
         )
-        return QRect(left, top, right - left, bottom - top)
+        return QRect(left, top, right - left, bottom - top).intersected(
+            snapshot.image.rect()
+        )
 
     def _draw_selected_desktop(
         self, painter: QPainter, selected: QRect

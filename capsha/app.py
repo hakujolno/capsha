@@ -3,7 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QFont, QImage
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QGuiApplication, QImage
 from PySide6.QtWidgets import QApplication
 
 from capsha.capture import CaptureOverlay
@@ -53,6 +54,9 @@ class CapshaApplication(QApplication):
 
 
 def run() -> int:
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = CapshaApplication(sys.argv)
     image_path = image_path_from_args(sys.argv[1:])
     if image_path is not None and app.open_image_file(image_path):
