@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  English | <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
   Clipboard-first screenshot annotation for Windows.
 </p>
 
@@ -72,6 +76,7 @@ This is the fastest way to use Capsha.
 - ➜ Arrow annotations
 - 🟪 Mosaic / Blur
 - 📋 Clipboard-first workflow
+- 🔁 Retake without breaking flow
 - 💾 PNG export
 - 𝕏 Open X compose page
 - 🌐 Japanese / English UI
@@ -87,6 +92,18 @@ Most screenshot tools are built to edit images.
 Capsha is built to **share them.**
 
 > Reduce the time between capturing a screenshot and sharing it.
+
+---
+
+## 💡 Tip
+
+Press **Retake** to immediately start a new capture. Current annotations are discarded, and no confirmation dialog is shown so the capture flow stays fast.
+
+---
+
+## Learn More
+
+- [Design Philosophy](DESIGN.md)
 
 ---
 

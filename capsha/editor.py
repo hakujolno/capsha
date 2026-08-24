@@ -145,6 +145,8 @@ class StepperControl(QWidget):
 
 
 class EditorWindow(QMainWindow):
+    retake_requested = Signal()
+
     def __init__(
         self,
         image: QImage,
@@ -330,6 +332,13 @@ class EditorWindow(QMainWindow):
             )
         )
         commands.addWidget(redo_button)
+
+        retake_button = QPushButton(tr("retake"))
+        retake_button.setObjectName("quietButton")
+        retake_button.setIcon(make_icon("retake"))
+        retake_button.setToolTip(tr("retake_tip"))
+        retake_button.clicked.connect(self._request_retake)
+        commands.addWidget(retake_button)
         commands.addSeparator()
 
         tool_items = [
@@ -924,6 +933,11 @@ class EditorWindow(QMainWindow):
 
     def _mark_dirty(self) -> None:
         self._dirty = True
+
+    def _request_retake(self) -> None:
+        self._canvas.commit_inline_editing()
+        self._dirty = False
+        self.retake_requested.emit()
 
     def _build_legacy_toolbars(self) -> None:
         tools = QToolBar("注釈ツール", self)

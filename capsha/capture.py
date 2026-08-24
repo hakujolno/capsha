@@ -25,16 +25,45 @@ class ScreenSnapshot:
     scale_y: float
 
 
+@dataclass(frozen=True)
+class DesktopSnapshot:
+    virtual_geometry: QRect
+    screens: tuple[ScreenSnapshot, ...]
+
+
+def capture_desktop() -> DesktopSnapshot:
+    """Capture a new, immutable snapshot of every current display."""
+    virtual_geometry = QRect()
+    snapshots: list[ScreenSnapshot] = []
+    for screen in QGuiApplication.screens():
+        geometry = screen.geometry()
+        virtual_geometry = virtual_geometry.united(geometry)
+        pixmap = screen.grabWindow(0)
+        image = pixmap.toImage().convertToFormat(
+            QImage.Format.Format_ARGB32_Premultiplied
+        )
+        image.setDevicePixelRatio(1.0)
+        snapshots.append(
+            ScreenSnapshot(
+                QRect(geometry),
+                image,
+                image.width() / max(1, geometry.width()),
+                image.height() / max(1, geometry.height()),
+            )
+        )
+    return DesktopSnapshot(virtual_geometry, tuple(snapshots))
+
+
 class CaptureOverlay(QWidget):
     captured = Signal(QImage)
     cancelled = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, desktop: DesktopSnapshot) -> None:
         super().__init__()
         self._origin: QPoint | None = None
         self._current: QPoint | None = None
-        self._virtual_geometry = self._get_virtual_geometry()
-        self._screens = self._capture_screens()
+        self._virtual_geometry = desktop.virtual_geometry
+        self._screens = desktop.screens
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -45,33 +74,6 @@ class CaptureOverlay(QWidget):
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setGeometry(self._virtual_geometry)
-
-    @staticmethod
-    def _get_virtual_geometry() -> QRect:
-        geometry = QRect()
-        for screen in QGuiApplication.screens():
-            geometry = geometry.united(screen.geometry())
-        return geometry
-
-    @staticmethod
-    def _capture_screens() -> list[ScreenSnapshot]:
-        snapshots: list[ScreenSnapshot] = []
-        for screen in QGuiApplication.screens():
-            pixmap = screen.grabWindow(0)
-            image = pixmap.toImage().convertToFormat(
-                QImage.Format.Format_ARGB32_Premultiplied
-            )
-            image.setDevicePixelRatio(1.0)
-            geometry = screen.geometry()
-            snapshots.append(
-                ScreenSnapshot(
-                    QRect(geometry),
-                    image,
-                    image.width() / max(1, geometry.width()),
-                    image.height() / max(1, geometry.height()),
-                )
-            )
-        return snapshots
 
     def _global_selection(self, selected: QRect) -> QRect:
         return QRect(

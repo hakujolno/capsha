@@ -44,6 +44,17 @@ def make_icon(name: str, color: str = "#e5e7eb", size: int = 20) -> QIcon:
         painter.drawPath(path)
         painter.setBrush(QColor(color))
         painter.drawPolygon(arrow)
+    elif name == "retake":
+        path = QPainterPath()
+        path.moveTo(s * .75, s * .34)
+        path.cubicTo(s * .60, s * .17, s * .30, s * .22, s * .23, s * .46)
+        path.cubicTo(s * .15, s * .72, s * .43, s * .91, s * .66, s * .78)
+        painter.drawPath(path)
+        painter.setBrush(QColor(color))
+        painter.drawPolygon(QPolygonF([
+            QPointF(s * .78, s * .32), QPointF(s * .55, s * .30),
+            QPointF(s * .69, s * .50),
+        ]))
     elif name == "select":
         painter.drawPolygon(QPolygonF([
             QPointF(s * .23, s * .14), QPointF(s * .72, s * .60),
