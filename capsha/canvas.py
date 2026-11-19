@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFocusEvent,
@@ -40,6 +41,12 @@ CIRCLED_NUMBERS = [
     "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
     "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳",
 ]
+
+
+@dataclass(frozen=True)
+class CanvasState:
+    image: QImage
+    annotations: list[Annotation]
 
 
 class InlineTextEditor(QTextEdit):
@@ -95,6 +102,7 @@ class AnnotationCanvas(QWidget):
     history_changed = Signal(bool, bool)
     selection_changed = Signal(bool)
     zoom_changed = Signal(int)
+    image_size_changed = Signal(int, int)
     tool_change_requested = Signal(object)
 
     def __init__(self, image: QImage) -> None:
@@ -107,7 +115,7 @@ class AnnotationCanvas(QWidget):
         self._base.setDevicePixelRatio(1.0)
         self._mosaic_preview = self._base
         self._annotations: list[Annotation] = []
-        self._history: list[list[Annotation]] = [[]]
+        self._history: list[CanvasState] = [self._snapshot_state()]
         self._history_index = 0
 
         self._tool = Tool.TEXT
@@ -150,6 +158,10 @@ class AnnotationCanvas(QWidget):
         self._editing_original_text = ""
         self._inline_finishing = False
         self._inline_focus_pending = False
+        self._crop_rect: QRectF | None = None
+        self._crop_drag_mode: str | None = None
+        self._crop_drag_origin = QPointF()
+        self._crop_original = QRectF()
 
         self.setMinimumSize(560, 360)
         self.setMouseTracking(True)
@@ -170,7 +182,7 @@ class AnnotationCanvas(QWidget):
         self._base.setDevicePixelRatio(1.0)
         self._mosaic_preview = self._base
         self._annotations = []
-        self._history = [[]]
+        self._history = [self._snapshot_state()]
         self._history_index = 0
         self._start = None
         self._current = None
@@ -179,12 +191,17 @@ class AnnotationCanvas(QWidget):
         self._drag_origin = None
         self._drag_original = None
         self._resize_handle = None
+        self._clear_crop()
         self._zoom = 1.0
         self._pan = QPointF()
         self._panning = False
         self._caption_number = 1
         self.history_changed.emit(False, False)
         self.selection_changed.emit(False)
+        self.image_size_changed.emit(
+            self._base.width(),
+            self._base.height(),
+        )
         self.zoom_changed.emit(self.current_zoom_percent())
         self._position_inline_editor()
         self.update()
@@ -214,8 +231,20 @@ class AnnotationCanvas(QWidget):
         return super().eventFilter(watched, event)
 
     def set_tool(self, tool: Tool) -> None:
+        if self._tool == Tool.CROP and tool != Tool.CROP:
+            self._clear_crop()
         self._tool = tool
+        if tool == Tool.CROP:
+            self._selected_index = None
+            self.selection_changed.emit(False)
+            self._crop_rect = QRectF(
+                0.0,
+                0.0,
+                float(self._base.width()),
+                float(self._base.height()),
+            )
         self._apply_tool_cursor()
+        self.update()
 
     def _apply_tool_cursor(self) -> None:
         if self._panning:
@@ -541,6 +570,27 @@ class AnnotationCanvas(QWidget):
                 )
         return cloned
 
+    def _snapshot_state(self) -> CanvasState:
+        return CanvasState(
+            QImage(self._base),
+            self._clone_annotations(self._annotations),
+        )
+
+    def _restore_state(self, state: CanvasState) -> None:
+        self._base = QImage(state.image)
+        self._base.setDevicePixelRatio(1.0)
+        self._annotations = self._clone_annotations(state.annotations)
+        self._rebuild_mosaic_preview()
+        self._sync_caption_number()
+        self._selected_index = None
+        self._zoom = 1.0
+        self._pan = QPointF()
+        self.image_size_changed.emit(
+            self._base.width(),
+            self._base.height(),
+        )
+        self.zoom_changed.emit(self.current_zoom_percent())
+
     def can_undo(self) -> bool:
         return self._history_index > 0
 
@@ -549,34 +599,32 @@ class AnnotationCanvas(QWidget):
 
     def _commit_history(self) -> None:
         del self._history[self._history_index + 1 :]
-        self._history.append(self._clone_annotations(self._annotations))
+        self._history.append(self._snapshot_state())
         self._history_index += 1
         self.history_changed.emit(self.can_undo(), self.can_redo())
         self.changed.emit()
 
     def undo(self) -> None:
+        if self._crop_rect is not None:
+            self.cancel_crop()
+            return
         if not self.can_undo():
             return
         self._history_index -= 1
-        self._annotations = self._clone_annotations(
-            self._history[self._history_index]
-        )
-        self._rebuild_mosaic_preview()
-        self._sync_caption_number()
+        self._restore_state(self._history[self._history_index])
         self._normalize_selection()
         self.history_changed.emit(self.can_undo(), self.can_redo())
         self.changed.emit()
         self.update()
 
     def redo(self) -> None:
+        if self._crop_rect is not None:
+            self.cancel_crop()
+            return
         if not self.can_redo():
             return
         self._history_index += 1
-        self._annotations = self._clone_annotations(
-            self._history[self._history_index]
-        )
-        self._rebuild_mosaic_preview()
-        self._sync_caption_number()
+        self._restore_state(self._history[self._history_index])
         self._normalize_selection()
         self.history_changed.emit(self.can_undo(), self.can_redo())
         self.changed.emit()
@@ -645,6 +693,127 @@ class AnnotationCanvas(QWidget):
             shown.top()
             + point.y() * shown.height() / self._base.height(),
         )
+
+    def _to_image_clamped(self, point: QPointF) -> QPointF:
+        shown = self._display_rect()
+        return QPointF(
+            max(
+                0.0,
+                min(
+                    float(self._base.width()),
+                    (point.x() - shown.left())
+                    * self._base.width()
+                    / max(1.0, shown.width()),
+                ),
+            ),
+            max(
+                0.0,
+                min(
+                    float(self._base.height()),
+                    (point.y() - shown.top())
+                    * self._base.height()
+                    / max(1.0, shown.height()),
+                ),
+            ),
+        )
+
+    def _clear_crop(self) -> None:
+        self._crop_rect = None
+        self._crop_drag_mode = None
+        self._crop_drag_origin = QPointF()
+        self._crop_original = QRectF()
+
+    def cancel_crop(self) -> bool:
+        if self._crop_rect is None:
+            return False
+        self._clear_crop()
+        self._tool = Tool.SELECT
+        self.tool_change_requested.emit(Tool.SELECT)
+        self._apply_tool_cursor()
+        self.update()
+        return True
+
+    def _crop_pixel_rect(self) -> QRect:
+        crop = self._crop_rect or QRectF(
+            0,
+            0,
+            self._base.width(),
+            self._base.height(),
+        )
+        left = max(0, min(self._base.width() - 1, math.floor(crop.left())))
+        top = max(0, min(self._base.height() - 1, math.floor(crop.top())))
+        right = max(
+            left + 1,
+            min(self._base.width(), math.ceil(crop.right())),
+        )
+        bottom = max(
+            top + 1,
+            min(self._base.height(), math.ceil(crop.bottom())),
+        )
+        return QRect(left, top, right - left, bottom - top)
+
+    def _annotation_intersects_crop(
+        self,
+        annotation: Annotation,
+        crop: QRectF,
+    ) -> bool:
+        padding = 0.0
+        if isinstance(annotation, TextAnnotation):
+            padding = 10.0
+        elif isinstance(annotation, RectangleAnnotation):
+            padding = annotation.line_width / 2 + 2
+        elif isinstance(annotation, ArrowAnnotation):
+            padding = max(14.0, annotation.line_width * 4.0)
+        bounds = self._annotation_bounds(annotation).adjusted(
+            -padding,
+            -padding,
+            padding,
+            padding,
+        )
+        return bounds.intersects(crop)
+
+    def apply_crop(self) -> bool:
+        if self._crop_rect is None:
+            return False
+        pixel_rect = self._crop_pixel_rect()
+        full_image = pixel_rect == self._base.rect()
+        if not full_image:
+            crop_area = QRectF(
+                pixel_rect.x(),
+                pixel_rect.y(),
+                pixel_rect.width(),
+                pixel_rect.height(),
+            )
+            kept = [
+                annotation
+                for annotation in self._annotations
+                if self._annotation_intersects_crop(annotation, crop_area)
+            ]
+            self._annotations = self._clone_annotations(kept)
+            offset = QPointF(-pixel_rect.x(), -pixel_rect.y())
+            for annotation in self._annotations:
+                self._translate_annotation(annotation, offset)
+            self._base = self._base.copy(pixel_rect)
+            self._base.setDevicePixelRatio(1.0)
+            self._rebuild_mosaic_preview()
+            self._sync_caption_number()
+            self._selected_index = None
+            self._zoom = 1.0
+            self._pan = QPointF()
+        self._clear_crop()
+        self._tool = Tool.SELECT
+        self.tool_change_requested.emit(Tool.SELECT)
+        self._apply_tool_cursor()
+        if not full_image:
+            self._commit_history()
+            self.image_size_changed.emit(
+                self._base.width(),
+                self._base.height(),
+            )
+            self.zoom_changed.emit(self.current_zoom_percent())
+        self.selection_changed.emit(False)
+        self.update()
+        return True
 
     def _start_inline_editor(
         self,
@@ -1017,6 +1186,131 @@ class AnnotationCanvas(QWidget):
                 return name
         return None
 
+    def _crop_widget_rect(self) -> QRectF:
+        if self._crop_rect is None:
+            return QRectF()
+        return QRectF(
+            self._to_widget(self._crop_rect.topLeft()),
+            self._to_widget(self._crop_rect.bottomRight()),
+        ).normalized()
+
+    def _crop_handle_points(self) -> dict[str, QPointF]:
+        rect = self._crop_widget_rect()
+        return {
+            "tl": rect.topLeft(),
+            "t": QPointF(rect.center().x(), rect.top()),
+            "tr": rect.topRight(),
+            "r": QPointF(rect.right(), rect.center().y()),
+            "br": rect.bottomRight(),
+            "b": QPointF(rect.center().x(), rect.bottom()),
+            "bl": rect.bottomLeft(),
+            "l": QPointF(rect.left(), rect.center().y()),
+        }
+
+    def _crop_handle_at_widget(self, point: QPointF) -> str | None:
+        for name, handle in self._crop_handle_points().items():
+            if math.hypot(point.x() - handle.x(), point.y() - handle.y()) <= 10:
+                return name
+        return None
+
+    def _crop_action_rects(self) -> dict[str, QRectF]:
+        crop = self._crop_widget_rect().intersected(self._display_rect())
+        button_size = 32.0
+        gap = 6.0
+        margin = 10.0
+        right = min(crop.right(), self.width() - margin)
+        top = crop.bottom() + margin
+        if top + button_size > self.height() - margin:
+            # No room below the crop frame: tuck the buttons inside it.
+            top = crop.bottom() - margin - button_size
+            right = crop.right() - margin
+        right = max(right, button_size * 2 + gap + margin)
+        return {
+            "apply": QRectF(
+                right - button_size,
+                top,
+                button_size,
+                button_size,
+            ),
+            "cancel": QRectF(
+                right - button_size * 2 - gap,
+                top,
+                button_size,
+                button_size,
+            ),
+        }
+
+    def _crop_action_at(self, point: QPointF) -> str | None:
+        for action, rect in self._crop_action_rects().items():
+            if rect.contains(point):
+                return action
+        return None
+
+    @staticmethod
+    def _crop_cursor(handle: str | None) -> Qt.CursorShape:
+        if handle in {"tl", "br"}:
+            return Qt.CursorShape.SizeFDiagCursor
+        if handle in {"tr", "bl"}:
+            return Qt.CursorShape.SizeBDiagCursor
+        if handle in {"t", "b"}:
+            return Qt.CursorShape.SizeVerCursor
+        if handle in {"l", "r"}:
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeAllCursor
+
+    def _update_crop_drag(self, point: QPointF) -> None:
+        if self._crop_drag_mode is None:
+            return
+        original = QRectF(self._crop_original)
+        if self._crop_drag_mode == "move":
+            delta = point - self._crop_drag_origin
+            left = max(
+                0.0,
+                min(
+                    self._base.width() - original.width(),
+                    original.left() + delta.x(),
+                ),
+            )
+            top = max(
+                0.0,
+                min(
+                    self._base.height() - original.height(),
+                    original.top() + delta.y(),
+                ),
+            )
+            self._crop_rect = QRectF(
+                left,
+                top,
+                original.width(),
+                original.height(),
+            )
+            return
+
+        minimum = 2.0
+        left = original.left()
+        top = original.top()
+        right = original.right()
+        bottom = original.bottom()
+        handle = self._crop_drag_mode
+        if "l" in handle:
+            left = max(0.0, min(point.x(), right - minimum))
+        if "r" in handle:
+            right = min(
+                float(self._base.width()),
+                max(point.x(), left + minimum),
+            )
+        if "t" in handle:
+            top = max(0.0, min(point.y(), bottom - minimum))
+        if "b" in handle:
+            bottom = min(
+                float(self._base.height()),
+                max(point.y(), top + minimum),
+            )
+        self._crop_rect = QRectF(
+            QPointF(left, top),
+            QPointF(right, bottom),
+        ).normalized()
+
     def _begin_resize(self, handle: str, point: QPointF) -> None:
         if self._selected_index is None:
             return
@@ -1120,6 +1414,28 @@ class AnnotationCanvas(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
+        if self._tool == Tool.CROP and self._crop_rect is not None:
+            action = self._crop_action_at(event.position())
+            if action == "apply":
+                self.apply_crop()
+                return
+            if action == "cancel":
+                self.cancel_crop()
+                return
+            handle = self._crop_handle_at_widget(event.position())
+            if handle is not None:
+                self._crop_drag_mode = handle
+            elif self._crop_widget_rect().contains(event.position()):
+                self._crop_drag_mode = "move"
+            else:
+                return
+            self._crop_drag_origin = self._to_image_clamped(
+                event.position()
+            )
+            self._crop_original = QRectF(self._crop_rect)
+            self.setCursor(self._crop_cursor(self._crop_drag_mode))
+            return
+
         point = self._to_image(event.position())
         if point is None:
             return
@@ -1193,6 +1509,29 @@ class AnnotationCanvas(QWidget):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             return
 
+        if self._tool == Tool.CROP and self._crop_rect is not None:
+            if self._crop_drag_mode is not None:
+                self._update_crop_drag(
+                    self._to_image_clamped(event.position())
+                )
+                self.update()
+                return
+            action = self._crop_action_at(event.position())
+            handle = self._crop_handle_at_widget(event.position())
+            if action is not None:
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+                self.setToolTip(tr("crop_instruction"))
+            elif handle is not None:
+                self.setCursor(self._crop_cursor(handle))
+                self.setToolTip(tr("crop_instruction"))
+            elif self._crop_widget_rect().contains(event.position()):
+                self.setCursor(Qt.CursorShape.SizeAllCursor)
+                self.setToolTip(tr("crop_instruction"))
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+                self.setToolTip("")
+            return
+
         point = self._to_image(event.position())
         if point is None:
             return
@@ -1263,6 +1602,13 @@ class AnnotationCanvas(QWidget):
         if self._panning:
             self._panning = False
             self._apply_tool_cursor()
+            return
+
+        if self._crop_drag_mode is not None:
+            self._crop_drag_mode = None
+            self._crop_original = QRectF()
+            self._apply_tool_cursor()
+            self.update()
             return
 
         if self._resize_handle is not None:
@@ -1395,6 +1741,15 @@ class AnnotationCanvas(QWidget):
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._tool == Tool.CROP:
+            if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                self.apply_crop()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                self.cancel_crop()
+                event.accept()
+                return
         if (
             event.key() == Qt.Key.Key_Escape
             and self._tool == Tool.CAPTION
@@ -1754,6 +2109,116 @@ class AnnotationCanvas(QWidget):
                 )
             )
 
+    def _paint_crop_overlay(self, painter: QPainter) -> None:
+        if self._crop_rect is None:
+            return
+        shown = self._display_rect()
+        crop = self._crop_widget_rect().intersected(shown)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        dim = QPainterPath()
+        dim.addRect(shown)
+        hole = QPainterPath()
+        hole.addRect(crop)
+        painter.fillPath(dim.subtracted(hole), QColor(4, 8, 14, 165))
+
+        # Rule-of-thirds guides while the frame is being adjusted.
+        if self._crop_drag_mode is not None:
+            painter.setPen(QPen(QColor(255, 255, 255, 90), 1))
+            for i in (1, 2):
+                x = crop.left() + crop.width() * i / 3
+                y = crop.top() + crop.height() * i / 3
+                painter.drawLine(
+                    QPointF(x, crop.top()), QPointF(x, crop.bottom())
+                )
+                painter.drawLine(
+                    QPointF(crop.left(), y), QPointF(crop.right(), y)
+                )
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(0, 0, 0, 120), 3))
+        painter.drawRect(crop)
+        painter.setPen(QPen(QColor(255, 255, 255, 220), 1))
+        painter.drawRect(crop)
+
+        # Corner brackets and edge bars, drawn just inside the frame.
+        # A dark under-stroke keeps them visible on light screenshots.
+        inner = crop.adjusted(2, 2, -2, -2)
+        arm = min(18.0, inner.width() / 3, inner.height() / 3)
+        bar = min(10.0, inner.width() / 6, inner.height() / 6)
+        center = inner.center()
+        segments: list[tuple[QPointF, QPointF]] = []
+        for corner, dx, dy in (
+            (inner.topLeft(), 1, 1),
+            (inner.topRight(), -1, 1),
+            (inner.bottomLeft(), 1, -1),
+            (inner.bottomRight(), -1, -1),
+        ):
+            segments.append((corner, corner + QPointF(arm * dx, 0)))
+            segments.append((corner, corner + QPointF(0, arm * dy)))
+        segments += [
+            (QPointF(center.x() - bar, inner.top()),
+             QPointF(center.x() + bar, inner.top())),
+            (QPointF(center.x() - bar, inner.bottom()),
+             QPointF(center.x() + bar, inner.bottom())),
+            (QPointF(inner.left(), center.y() - bar),
+             QPointF(inner.left(), center.y() + bar)),
+            (QPointF(inner.right(), center.y() - bar),
+             QPointF(inner.right(), center.y() + bar)),
+        ]
+        for color, width in ((QColor(0, 0, 0, 110), 5.0),
+                             (QColor("#ffffff"), 3.0)):
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+            painter.setPen(pen)
+            for start, end in segments:
+                painter.drawLine(start, end)
+
+        # Output size badge at the top-left of the frame.
+        pixels = self._crop_pixel_rect()
+        label = f"{pixels.width()} × {pixels.height()}"
+        font = QFont("Segoe UI Variable")
+        font.setPixelSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+        text_width = painter.fontMetrics().horizontalAdvance(label)
+        badge = QRectF(0, 0, text_width + 16, 22)
+        badge.moveTopLeft(crop.topLeft() + QPointF(0, -28))
+        if badge.top() < 4:
+            badge.moveTopLeft(crop.topLeft() + QPointF(8, 8))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(15, 20, 28, 225))
+        painter.drawRoundedRect(badge, 6, 6)
+        painter.setPen(QColor("#e7eaf0"))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
+
+        actions = self._crop_action_rects()
+        painter.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        painter.setBrush(QColor(25, 34, 46, 240))
+        painter.drawRoundedRect(actions["cancel"], 8, 8)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#2f74e8"))
+        painter.drawRoundedRect(actions["apply"], 8, 8)
+
+        glyph_pen = QPen(QColor("#f8fafc"), 2)
+        glyph_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        glyph_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(glyph_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        c = actions["cancel"].center()
+        painter.drawLine(c + QPointF(-5, -5), c + QPointF(5, 5))
+        painter.drawLine(c + QPointF(-5, 5), c + QPointF(5, -5))
+        a = actions["apply"].center()
+        painter.drawPolyline(
+            QPolygonF([
+                a + QPointF(-6, 0.5),
+                a + QPointF(-2, 4.5),
+                a + QPointF(6, -4.5),
+            ])
+        )
+        painter.restore()
+
     def paintEvent(self, event: object) -> None:
         painter = QPainter(self)
         painter.setRenderHint(
@@ -1798,6 +2263,7 @@ class AnnotationCanvas(QWidget):
                     QPointF(shown.right(), y),
                 )
                 y += step
+        self._paint_crop_overlay(painter)
 
     def resizeEvent(self, event: object) -> None:
         super().resizeEvent(event)  # type: ignore[arg-type]

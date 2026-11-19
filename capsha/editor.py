@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QPropertyAnimation,
+    QRectF,
     QSettings,
     QSignalBlocker,
     QSize,
@@ -27,6 +28,8 @@ from PySide6.QtGui import (
     QIcon,
     QKeyEvent,
     QKeySequence,
+    QPainter,
+    QPen,
     QPixmap,
     QWheelEvent,
 )
@@ -78,7 +81,33 @@ TOOL_KEYS = {
     Tool.RECTANGLE: "rectangle",
     Tool.ARROW: "arrow",
     Tool.MOSAIC: "mosaic",
+    Tool.CROP: "crop",
 }
+
+
+def swatch_icon(
+    color: QColor,
+    size: int,
+    selected: bool = False,
+) -> QIcon:
+    """Rounded colour swatch that stays visible on the dark toolbar."""
+    ratio = 2
+    pixmap = QPixmap(size * ratio, size * ratio)
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    rect = QRectF(0.5, 0.5, size - 1, size - 1)
+    if selected:
+        painter.setPen(QPen(QColor("#60a5fa"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 7, 7)
+        rect = rect.adjusted(3.5, 3.5, -3.5, -3.5)
+    painter.setPen(QPen(QColor(255, 255, 255, 46), 1))
+    painter.setBrush(color)
+    painter.drawRoundedRect(rect, 5, 5)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class ReliableSpinBox(QSpinBox):
@@ -216,6 +245,7 @@ class EditorWindow(QMainWindow):
         self._build_toolbars()
         self._build_zoom_panel()
         self._apply_style()
+        self._lock_context_bar_height()
         QTimer.singleShot(0, self._update_context_visibility)
         QTimer.singleShot(0, self._apply_initial_window_size)
         QTimer.singleShot(650, self._maybe_show_did_you_know_tip)
@@ -225,6 +255,9 @@ class EditorWindow(QMainWindow):
         )
         self._canvas.selection_changed.connect(
             self._selection_changed
+        )
+        self._canvas.image_size_changed.connect(
+            self._image_size_changed
         )
         self._canvas.tool_change_requested.connect(
             self._select_tool_from_canvas
@@ -344,10 +377,11 @@ class EditorWindow(QMainWindow):
         tool_items = [
             (tr("select"), Tool.SELECT, "select"),
             (tr("text"), Tool.TEXT, "text"),
-            ("①②", Tool.CAPTION, "caption"),
+            (tr("caption"), Tool.CAPTION, "caption"),
             (tr("rectangle"), Tool.RECTANGLE, "rectangle"),
             (tr("arrow"), Tool.ARROW, "arrow"),
             (tr("mosaic"), Tool.MOSAIC, "mosaic"),
+            (tr("crop"), Tool.CROP, "crop"),
         ]
         self._tool_group = QButtonGroup(self)
         self._tool_group.setExclusive(True)
@@ -359,7 +393,9 @@ class EditorWindow(QMainWindow):
             button.setChecked(tool == Tool.SELECT)
             button.setIcon(make_icon(icon_name))
             button.setToolTip(
-                tr("tool_tip", tool=tr(TOOL_KEYS[tool]))
+                f"{tr('crop_tip')}\n{tr('crop_instruction')}"
+                if tool == Tool.CROP
+                else tr("tool_tip", tool=tr(TOOL_KEYS[tool]))
             )
             button.clicked.connect(
                 lambda checked=False, selected=tool:
@@ -409,30 +445,34 @@ class EditorWindow(QMainWindow):
         self.addToolBar(context)
         self._context_bar = context
 
-        context.addWidget(QLabel(tr("color")))
+        self._color_widgets: list[QAction] = []
         self._color_button = QPushButton()
         self._color_button.setObjectName("colorButton")
-        self._color_button.setMinimumWidth(128)
         self._color_button.setToolTip(tr("choose_color"))
         self._color_button.clicked.connect(self._choose_color)
-        context.addWidget(self._color_button)
+        self._color_widgets.append(context.addWidget(self._color_button))
 
         self._recent_color_buttons = []
         for color_name in self._recent_colors:
             recent = QToolButton()
             recent.setObjectName("colorChip")
-            recent.setFixedSize(30, 30)
+            recent.setFixedSize(28, 28)
             self._recent_color_buttons.append(recent)
-            context.addWidget(recent)
+            self._color_widgets.append(context.addWidget(recent))
         add_color = QToolButton()
         add_color.setObjectName("paletteAddButton")
         add_color.setText("+")
-        add_color.setFixedSize(30, 30)
+        add_color.setFixedSize(28, 28)
         add_color.setToolTip(tr("add_color"))
         add_color.clicked.connect(self._choose_color)
-        context.addWidget(add_color)
+        self._color_widgets.append(context.addWidget(add_color))
         self._update_recent_color_buttons()
-        context.addSeparator()
+        self._color_widgets.append(context.addSeparator())
+
+        self._hint_label = QLabel()
+        self._hint_label.setObjectName("hintLabel")
+        self._hint_action = context.addWidget(self._hint_label)
+        self._hint_action.setVisible(False)
 
         self._line_widgets: list[QAction] = []
         self._rectangle_widgets: list[QAction] = []
@@ -445,19 +485,13 @@ class EditorWindow(QMainWindow):
 
         def context_label(
             text: str,
-            minimum_width: int = 54,
+            minimum_width: int = 0,
         ) -> QLabel:
             label = QLabel(text)
             label.setObjectName("contextLabel")
             label.setAlignment(
-                Qt.AlignmentFlag.AlignRight
+                Qt.AlignmentFlag.AlignLeft
                 | Qt.AlignmentFlag.AlignVCenter
-            )
-            label.setMinimumWidth(
-                max(
-                    minimum_width,
-                    label.fontMetrics().horizontalAdvance(text) + 18,
-                )
             )
             return label
 
@@ -473,26 +507,26 @@ class EditorWindow(QMainWindow):
             ["1", "2", "3", "4", "6", "8", "12", "16", "24"]
         )
         self._line_width_combo.setCurrentText(str(self._line_width))
-        self._line_width_combo.setFixedWidth(82)
+        self._line_width_combo.setFixedWidth(66)
         self._line_width_combo.currentTextChanged.connect(
             self._line_width_text_changed
         )
         add(line_label, self._line_widgets)
         add(self._line_width_combo, self._line_widgets)
-        add_gap(10, self._line_widgets)
+        add_gap(16, self._line_widgets)
 
         style_label = context_label(tr("stroke_style"), 60)
         self._line_style_combo = QComboBox()
         self._line_style_combo.addItem(tr("solid"), "solid")
         self._line_style_combo.addItem(tr("dashed"), "dash")
         self._line_style_combo.addItem(tr("dotted"), "dot")
-        self._line_style_combo.setFixedWidth(104)
+        self._line_style_combo.setFixedWidth(92)
         self._line_style_combo.currentIndexChanged.connect(
             self._line_style_changed
         )
         add(style_label, self._line_widgets)
         add(self._line_style_combo, self._line_widgets)
-        add_gap(10, self._line_widgets)
+        add_gap(16, self._line_widgets)
 
         line_alpha_label = context_label(tr("stroke"), 60)
         self._line_opacity_control = QSlider(
@@ -500,25 +534,25 @@ class EditorWindow(QMainWindow):
         )
         self._line_opacity_control.setRange(0, 100)
         self._line_opacity_control.setValue(self._line_opacity)
-        self._line_opacity_control.setFixedWidth(104)
+        self._line_opacity_control.setFixedWidth(88)
         self._line_opacity_control.setToolTip(tr("stroke_opacity"))
         self._line_alpha_value = QLabel("100%")
-        self._line_alpha_value.setMinimumWidth(42)
+        self._line_alpha_value.setMinimumWidth(36)
         self._line_opacity_control.valueChanged.connect(
             self._line_opacity_changed
         )
         add(line_alpha_label, self._line_widgets)
         add(self._line_opacity_control, self._line_widgets)
         add(self._line_alpha_value, self._line_widgets)
-        add_gap(12, self._line_widgets)
+        add_gap(16, self._line_widgets)
 
         self._fill_button = QPushButton(tr("no_fill"))
         self._fill_button.setObjectName("toggleButton")
         self._fill_button.setCheckable(True)
-        self._fill_button.setMinimumWidth(96)
+        self._fill_button.setMinimumWidth(0)
         self._fill_button.toggled.connect(self._fill_changed)
         add(self._fill_button, self._rectangle_widgets)
-        add_gap(10, self._rectangle_widgets)
+        add_gap(16, self._rectangle_widgets)
 
         fill_alpha_label = context_label(tr("fill"), 48)
         self._fill_opacity_control = QSlider(
@@ -526,22 +560,22 @@ class EditorWindow(QMainWindow):
         )
         self._fill_opacity_control.setRange(0, 100)
         self._fill_opacity_control.setValue(self._fill_opacity)
-        self._fill_opacity_control.setFixedWidth(104)
+        self._fill_opacity_control.setFixedWidth(88)
         self._fill_opacity_control.setToolTip(tr("fill_opacity"))
         self._fill_alpha_value = QLabel("30%")
-        self._fill_alpha_value.setMinimumWidth(42)
+        self._fill_alpha_value.setMinimumWidth(36)
         self._fill_opacity_control.valueChanged.connect(
             self._fill_opacity_changed
         )
         add(fill_alpha_label, self._rectangle_widgets)
         add(self._fill_opacity_control, self._rectangle_widgets)
         add(self._fill_alpha_value, self._rectangle_widgets)
-        add_gap(10, self._rectangle_widgets)
+        add_gap(16, self._rectangle_widgets)
 
         self._rounded_button = QPushButton(tr("rounded"))
         self._rounded_button.setObjectName("toggleButton")
         self._rounded_button.setCheckable(True)
-        self._rounded_button.setMinimumWidth(72)
+        self._rounded_button.setMinimumWidth(0)
         self._rounded_button.toggled.connect(self._rounded_changed)
         add(self._rounded_button, self._rectangle_widgets)
 
@@ -569,6 +603,7 @@ class EditorWindow(QMainWindow):
         self._italic_button.setToolTip(tr("italic"))
         self._italic_button.toggled.connect(self._italic_changed)
         add(self._italic_button, self._text_widgets)
+        add_gap(10, self._text_widgets)
 
         self._outline_button = QPushButton(tr("outline"))
         self._outline_button.setObjectName("toggleButton")
@@ -579,7 +614,7 @@ class EditorWindow(QMainWindow):
 
         self._outline_color_button = QToolButton()
         self._outline_color_button.setObjectName("colorChip")
-        self._outline_color_button.setFixedSize(30, 30)
+        self._outline_color_button.setFixedSize(28, 28)
         self._outline_color_button.setToolTip(
             tr("choose_outline_color")
         )
@@ -587,6 +622,7 @@ class EditorWindow(QMainWindow):
             self._choose_outline_color
         )
         add(self._outline_color_button, self._text_widgets)
+        add_gap(10, self._text_widgets)
 
         self._background_button = QPushButton(tr("background"))
         self._background_button.setObjectName("toggleButton")
@@ -602,7 +638,7 @@ class EditorWindow(QMainWindow):
 
         self._background_color_button = QToolButton()
         self._background_color_button.setObjectName("colorChip")
-        self._background_color_button.setFixedSize(30, 30)
+        self._background_color_button.setFixedSize(28, 28)
         self._background_color_button.setToolTip(
             tr("choose_background_color")
         )
@@ -622,14 +658,14 @@ class EditorWindow(QMainWindow):
         self._background_opacity_control.setValue(
             self._background_opacity
         )
-        self._background_opacity_control.setFixedWidth(104)
+        self._background_opacity_control.setFixedWidth(88)
         self._background_opacity_control.setToolTip(
             tr("background_opacity")
         )
         self._background_opacity_value = QLabel(
             f"{self._background_opacity}%"
         )
-        self._background_opacity_value.setMinimumWidth(42)
+        self._background_opacity_value.setMinimumWidth(36)
         self._background_opacity_control.valueChanged.connect(
             self._background_opacity_changed
         )
@@ -659,19 +695,32 @@ class EditorWindow(QMainWindow):
         self._update_state_label()
         self._update_context_visibility()
 
+    def _lock_context_bar_height(self) -> None:
+        """Keep the canvas from jumping when tools swap their controls."""
+        bar = self._context_bar
+        actions = bar.actions()
+        visible = [action.isVisible() for action in actions]
+        for action in actions:
+            action.setVisible(True)
+        bar.ensurePolished()
+        height = bar.sizeHint().height()
+        for action, was_visible in zip(actions, visible):
+            action.setVisible(was_visible)
+        bar.setFixedHeight(height)
+
     def _build_zoom_panel(self) -> None:
         panel = QWidget(self._canvas)
         panel.setObjectName("zoomPanel")
         panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         panel.setToolTip(tr("pan_hint"))
         layout = QHBoxLayout(panel)
-        layout.setContentsMargins(5, 4, 5, 4)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
         zoom_out = QToolButton()
         zoom_out.setObjectName("zoomControl")
         zoom_out.setText("−")
-        zoom_out.setFixedSize(30, 30)
+        zoom_out.setFixedSize(32, 32)
         zoom_out.setToolTip(f"{tr('zoom_out')}\n{tr('pan_hint')}")
         zoom_out.clicked.connect(self._canvas.zoom_out)
         layout.addWidget(zoom_out)
@@ -686,15 +735,15 @@ class EditorWindow(QMainWindow):
         zoom_in = QToolButton()
         zoom_in.setObjectName("zoomControl")
         zoom_in.setText("+")
-        zoom_in.setFixedSize(30, 30)
+        zoom_in.setFixedSize(32, 32)
         zoom_in.setToolTip(f"{tr('zoom_in')}\n{tr('pan_hint')}")
         zoom_in.clicked.connect(self._canvas.zoom_in)
         layout.addWidget(zoom_in)
 
         view = QToolButton()
         view.setObjectName("zoomControl")
-        view.setText("⋯")
-        view.setFixedSize(30, 30)
+        view.setIcon(make_icon("more", "#e7eaf0", 18))
+        view.setFixedSize(32, 32)
         view.setToolTip(f"{tr('view_settings')}\n{tr('pan_hint')}")
         view.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(view)
@@ -707,7 +756,7 @@ class EditorWindow(QMainWindow):
         view.setMenu(menu)
         layout.addWidget(view)
 
-        panel.setFixedSize(174, 42)
+        panel.setFixedSize(176, 40)
         shadow = QGraphicsDropShadowEffect(panel)
         shadow.setBlurRadius(8)
         shadow.setOffset(0, 3)
@@ -1201,11 +1250,9 @@ class EditorWindow(QMainWindow):
         self._update_state_label()
 
     def _apply_style(self) -> None:
-        down_arrow = (
-            Path(__file__).resolve().parent
-            / "assets"
-            / "chevron-down.svg"
-        ).as_posix()
+        assets = Path(__file__).resolve().parent / "assets"
+        down_arrow = (assets / "chevron-down.svg").as_posix()
+        up_arrow = (assets / "chevron-up.svg").as_posix()
         self.setStyleSheet(
             "QMainWindow { background: #0f141c; color: #e7eaf0; }"
             "QToolBar { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
@@ -1217,8 +1264,9 @@ class EditorWindow(QMainWindow):
             "QToolBar::separator { background: #303a48; width: 1px;"
             " margin: 6px 7px; }"
             "QLabel { color: #d7dce4; background: transparent; }"
-            "QLabel#contextLabel { color: #aeb8c5;"
-            " padding: 0 8px 0 2px; }"
+            "QLabel#contextLabel { color: #8f9aaa;"
+            " padding: 0 2px 0 0; }"
+            "QLabel#hintLabel { color: #aeb8c5; padding: 0 4px; }"
             "QLabel#brandLabel { color: #f1f3f7; font-size: 15px;"
             " font-weight: 600; padding: 0 11px 0 4px; }"
             "QPushButton { color: #e7eaf0; background: #202936;"
@@ -1255,15 +1303,19 @@ class EditorWindow(QMainWindow):
             "QPushButton#formatButton { min-width: 28px; max-width: 28px;"
             " padding: 6px 3px; font-weight: 700; }"
             "QPushButton#colorButton { text-align: left;"
-            " background: #1b2430; padding: 5px 10px; }"
+            " background: #1b2430; padding: 5px 12px 5px 8px;"
+            " font-family: 'Cascadia Mono', 'Consolas', monospace;"
+            " color: #c9d1dc; }"
             "QToolButton { color: #dce1e8; background: transparent;"
             " border: 1px solid transparent; border-radius: 9px;"
             " padding: 6px; min-width: 22px; min-height: 22px; }"
             "QToolButton:hover { background: #26313f;"
             " border-color: #3a4758; }"
-            "QToolButton#colorChip { background: #1b2430;"
-            " border: 1px solid #3a4656; padding: 2px; }"
-            "QToolButton#colorChip:hover { border: 2px solid #5792ef; }"
+            "QToolButton#colorChip { background: transparent;"
+            " border: 1px solid transparent; border-radius: 8px;"
+            " padding: 1px; }"
+            "QToolButton#colorChip:hover { background: #232d3a;"
+            " border-color: #3a4758; }"
             "QToolButton#paletteAddButton { color: #aeb8c5;"
             " background: #1b2430; border: 1px dashed #46556a;"
             " font-size: 18px; font-weight: 500; padding: 0; }"
@@ -1274,6 +1326,26 @@ class EditorWindow(QMainWindow):
             " background: #111720; border: 1px solid #354153;"
             " border-radius: 8px; padding: 6px 9px; min-height: 22px; }"
             "QComboBox:hover, QFontComboBox:hover { border-color: #58708e; }"
+            # Spin boxes (e.g. in the colour dialog) need explicit arrow
+            # buttons. Without them Qt sizes the text field for the native
+            # side-by-side arrows and it ends up covering the up arrow.
+            "QSpinBox { padding-right: 26px; }"
+            "QSpinBox:hover { border-color: #58708e; }"
+            "QSpinBox::up-button, QSpinBox::down-button {"
+            " subcontrol-origin: border; width: 22px; border: 0;"
+            " background: transparent; margin-right: 3px; }"
+            "QSpinBox::up-button { subcontrol-position: top right;"
+            " margin-top: 3px; border-top-right-radius: 6px; }"
+            "QSpinBox::down-button { subcontrol-position: bottom right;"
+            " margin-bottom: 3px; border-bottom-right-radius: 6px; }"
+            "QSpinBox::up-button:hover, QSpinBox::down-button:hover {"
+            " background: #26313f; }"
+            "QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {"
+            " background: #2d6edb; }"
+            f"QSpinBox::up-arrow {{ image: url({up_arrow});"
+            f" width: 10px; height: 7px; }}"
+            f"QSpinBox::down-arrow {{ image: url({down_arrow});"
+            f" width: 10px; height: 7px; }}"
             "QComboBox::drop-down, QFontComboBox::drop-down {"
             " border: 0; width: 28px; }"
             f"QComboBox::down-arrow, QFontComboBox::down-arrow {{"
@@ -1296,9 +1368,13 @@ class EditorWindow(QMainWindow):
             "QWidget#zoomPanel { background: rgba(24, 32, 43, 242);"
             " border: 1px solid #3a4656; border-radius: 10px; }"
             "QToolButton#zoomControl { color: #e7eaf0;"
-            " background: transparent; font-size: 15px; }"
+            " background: transparent; border-radius: 7px;"
+            " font-size: 17px; padding: 0; }"
             "QToolButton#zoomControl:hover { background: #283342; }"
-            "QLabel#zoomBadge { color: #edf0f4; font-weight: 600; }"
+            "QToolButton#zoomControl::menu-indicator { image: none;"
+            " width: 0; }"
+            "QLabel#zoomBadge { color: #edf0f4; font-weight: 600;"
+            " font-size: 12px; }"
             "QLabel#stateLabel { color: #8f9aaa; padding: 2px 7px; }"
             "QLabel#toast { color: #ffffff; background: rgba(24, 32, 43, 247);"
             " border: 1px solid #4b86e8; border-radius: 9px;"
@@ -1501,8 +1577,11 @@ class EditorWindow(QMainWindow):
         )
 
     def _select_tool(self, tool: Tool) -> None:
+        if tool == Tool.CROP:
+            self._canvas.commit_inline_editing()
         self._current_tool = tool
         self._canvas.set_tool(tool)
+        self._canvas.setFocus(Qt.FocusReason.OtherFocusReason)
         self._update_context_visibility()
         self._update_state_label()
 
@@ -1519,6 +1598,10 @@ class EditorWindow(QMainWindow):
         self._update_context_visibility()
         self._update_state_label()
         self._maybe_show_text_resize_hint()
+
+    def _image_size_changed(self, width: int, height: int) -> None:
+        self._image_size_text = f"{width} × {height}"
+        self._update_state_label()
 
     def _sync_selected_text_controls(self) -> None:
         if not hasattr(self, "_font_combo"):
@@ -1595,6 +1678,14 @@ class EditorWindow(QMainWindow):
             action.setVisible(show_rectangle)
         for action in self._text_widgets:
             action.setVisible(show_text)
+        hint = {
+            Tool.MOSAIC: tr("mosaic_hint"),
+            Tool.CROP: tr("crop_instruction"),
+        }.get(tool, "")
+        for action in self._color_widgets:
+            action.setVisible(not hint)
+        self._hint_label.setText(hint)
+        self._hint_action.setVisible(bool(hint))
         self._update_background_controls_enabled()
 
     def _line_width_text_changed(self, text: str) -> None:
@@ -1645,11 +1736,10 @@ class EditorWindow(QMainWindow):
 
     def _update_color_button(self) -> None:
         color = self._current_color.name()
-        chip = QPixmap(40, 26)
-        chip.fill(self._current_color)
-        self._color_button.setIcon(QIcon(chip))
-        self._color_button.setIconSize(QSize(40, 26))
-        self._color_button.setText(f"{tr('color')}  {color}")
+        self._color_button.setIcon(swatch_icon(self._current_color, 20))
+        self._color_button.setIconSize(QSize(20, 20))
+        self._color_button.setText(color.upper())
+        self._update_recent_color_buttons()
 
     def _update_recent_color_buttons(self) -> None:
         if not hasattr(self, "_recent_color_buttons"):
@@ -1657,10 +1747,12 @@ class EditorWindow(QMainWindow):
         for button, color_name in zip(
             self._recent_color_buttons, self._recent_colors
         ):
-            chip = QPixmap(26, 26)
-            chip.fill(QColor(color_name))
-            button.setIcon(QIcon(chip))
-            button.setIconSize(QSize(26, 26))
+            selected = (
+                QColor(color_name).name()
+                == self._current_color.name()
+            )
+            button.setIcon(swatch_icon(QColor(color_name), 24, selected))
+            button.setIconSize(QSize(24, 24))
             button.setToolTip(
                 tr("recent_color", color=color_name)
             )
@@ -1687,10 +1779,10 @@ class EditorWindow(QMainWindow):
         self._update_outline_color_button()
 
     def _update_outline_color_button(self) -> None:
-        chip = QPixmap(24, 24)
-        chip.fill(self._outline_color)
-        self._outline_color_button.setIcon(QIcon(chip))
-        self._outline_color_button.setIconSize(QSize(24, 24))
+        self._outline_color_button.setIcon(
+            swatch_icon(self._outline_color, 20)
+        )
+        self._outline_color_button.setIconSize(QSize(20, 20))
         self._outline_color_button.setToolTip(
             tr("outline_color", color=self._outline_color.name())
         )
@@ -1709,10 +1801,10 @@ class EditorWindow(QMainWindow):
         self._update_state_label()
 
     def _update_background_color_button(self) -> None:
-        chip = QPixmap(24, 24)
-        chip.fill(self._background_color)
-        self._background_color_button.setIcon(QIcon(chip))
-        self._background_color_button.setIconSize(QSize(24, 24))
+        self._background_color_button.setIcon(
+            swatch_icon(self._background_color, 20)
+        )
+        self._background_color_button.setIconSize(QSize(20, 20))
         self._background_color_button.setToolTip(
             tr("background_color", color=self._background_color.name())
         )
@@ -1931,7 +2023,14 @@ class EditorWindow(QMainWindow):
         self._show_toast(tr("image_copied_paste"))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            if self._canvas.apply_crop():
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_Escape:
+            if self._canvas.cancel_crop():
+                event.accept()
+                return
             QApplication.quit()
         else:
             super().keyPressEvent(event)

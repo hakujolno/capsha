@@ -13,6 +13,7 @@ class Tool(Enum):
     RECTANGLE = auto()
     ARROW = auto()
     MOSAIC = auto()
+    CROP = auto()
 
 
 @dataclass

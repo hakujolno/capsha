@@ -86,6 +86,16 @@ def make_icon(name: str, color: str = "#e5e7eb", size: int = 20) -> QIcon:
         for row in range(3):
             for col in range(3):
                 painter.drawRect(QRectF(s * (.16 + col * .25), s * (.16 + row * .25), s * .14, s * .14))
+    elif name == "crop":
+        painter.drawLine(QPointF(s * .28, s * .12), QPointF(s * .28, s * .72))
+        painter.drawLine(QPointF(s * .28, s * .72), QPointF(s * .88, s * .72))
+        painter.drawLine(QPointF(s * .12, s * .28), QPointF(s * .72, s * .28))
+        painter.drawLine(QPointF(s * .72, s * .28), QPointF(s * .72, s * .88))
+    elif name == "more":
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        for x in (.25, .50, .75):
+            painter.drawEllipse(QPointF(s * x, s * .5), s * .07, s * .07)
     elif name == "save":
         painter.drawRoundedRect(QRectF(s * .18, s * .12, s * .64, s * .76), 2, 2)
         painter.drawRect(QRectF(s * .31, s * .12, s * .37, s * .25))
